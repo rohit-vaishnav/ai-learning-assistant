@@ -1,0 +1,27 @@
+# Virtual environment
+v/
+venv/
+.venv/
+env/
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# User uploads and local vector store
+backend/uploads/
+backend/vector_db/
+backend/.env
+
+# Node packages and build files
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.*.local
+
+# Operating System files
+.DS_Store
+Thumbs.db
