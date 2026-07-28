@@ -1,14 +1,3 @@
----
-title: AI Learning Assistant
-emoji: 🎓
-colorFrom: indigo
-colorTo: pink
-sdk: gradio
-sdk_version: 4.19.2
-app_file: app.py
-pinned: false
----
-
 # 🎓 AI Learning Assistant
 
 A full-featured, interactive AI Learning Assistant built with a **React (Vite)** frontend and **FastAPI** backend. It leverages **LangChain** and **FAISS** for Retrieval-Augmented Generation (RAG), allowing students to upload study documents and learn interactively.
