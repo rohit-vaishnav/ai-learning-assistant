@@ -5,6 +5,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "backend"))
 
+# ZeroGPU Startup Bypass
+try:
+    import spaces
+    @spaces.GPU
+    def dummy_gpu_startup():
+        pass
+except Exception as e:
+    pass
+
 from backend.app import app
 
 if __name__ == "__main__":
