@@ -1,10 +1,15 @@
 import os
 import sys
-import spaces
 
-@spaces.GPU
-def dummy_gpu_startup():
-    return "ZeroGPU active"
+# ZeroGPU Dynamic Import
+if os.environ.get("SPACES_ZERO_GPU") == "true":
+    try:
+        import spaces
+        @spaces.GPU
+        def dummy_gpu_startup():
+            return "ZeroGPU active"
+    except Exception:
+        pass
 
 # Add root and backend directory to python search path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
