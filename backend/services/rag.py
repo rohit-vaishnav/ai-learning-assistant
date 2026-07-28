@@ -1,11 +1,11 @@
 import os
 import torch
 import json
+from sqlalchemy import select, desc
 from backend.utils.vector_store import load_vector_store
 from backend.services.ollama_service import call_chat, call_generate, call_chat_stream
-
-# Global in-memory conversation history dictionary mapping document session keys to (question, answer) tuples
-CHAT_HISTORY = {}
+from backend.database.connection import async_session
+from backend.database.models import ChatHistory, UploadedDocument
 
 def get_rag_model():
     """
@@ -45,11 +45,12 @@ Standalone Question:"""
         print(f"Error condensing question via Ollama: {e}")
         return question
 
-def query_rag(question: str, index_name: str = "default", k: int = 4) -> dict:
+async def query_rag(question: str, user_id: int, file_name: str, k: int = 4) -> dict:
     """
-    Queries the vector DB for context, loads past conversation history, and answers the question.
-    Formats the response with source references and page numbers using local Ollama.
+    Queries the vector DB for context, loads past conversation history from PostgreSQL,
+    and answers the question. Saves response to PostgreSQL.
     """
+    index_name = f"user_{user_id}"
     db = load_vector_store(index_name)
     if db is None:
         return {
@@ -57,14 +58,34 @@ def query_rag(question: str, index_name: str = "default", k: int = 4) -> dict:
             "sources": []
         }
     
-    # Get conversation history
-    history = CHAT_HISTORY.get(index_name, [])
-    
+    # Retrieve history and doc_id from PostgreSQL
+    history = []
+    doc_id = None
+    async with async_session() as session:
+        doc_result = await session.execute(
+            select(UploadedDocument).where(
+                UploadedDocument.user_id == user_id,
+                UploadedDocument.file_name == file_name
+            )
+        )
+        doc = doc_result.scalars().first()
+        if doc:
+            doc_id = doc.id
+            history_result = await session.execute(
+                select(ChatHistory)
+                .where(ChatHistory.user_id == user_id, ChatHistory.document_id == doc_id)
+                .order_by(desc(ChatHistory.created_at))
+                .limit(2)
+            )
+            past_turns = history_result.scalars().all()
+            for turn in reversed(past_turns):
+                history.append((turn.question, turn.answer))
+                
     # Condense question (Multi-turn memory)
     condensed_question = condense_question(question, history)
     
-    # Retrieve top 6 chunks from FAISS (instead of 8) for performance
-    docs = db.similarity_search(condensed_question, k=6)
+    # Retrieve top 4 chunks from FAISS for performance
+    docs = db.similarity_search(condensed_question, k=4)
     
     if not docs:
         return {
@@ -72,7 +93,7 @@ def query_rag(question: str, index_name: str = "default", k: int = 4) -> dict:
             "sources": []
         }
     
-    # De-duplicate chunks and sort by document name and page number (Context ordering)
+    # De-duplicate chunks
     seen_contents = set()
     filtered_docs = []
     
@@ -84,8 +105,6 @@ def query_rag(question: str, index_name: str = "default", k: int = 4) -> dict:
             
     # Sort docs by source filename and page number to maintain sequential context flow
     filtered_docs = sorted(filtered_docs, key=lambda x: (x.metadata.get("source", ""), x.metadata.get("page", 1)))
-    
-    # Restrict to Top 4 chunks (RAG optimization)
     filtered_docs = filtered_docs[:k]
     
     sources = []
@@ -102,7 +121,7 @@ def query_rag(question: str, index_name: str = "default", k: int = 4) -> dict:
             "sources": []
         }
     
-    # Format context with source metadata for Ollama
+    # Format context with source metadata
     formatted_context_parts = []
     for i, doc in enumerate(filtered_docs):
         src_name = doc.metadata.get("source", "Unknown")
@@ -140,8 +159,8 @@ RULES:
 
     messages = [{"role": "system", "content": system_prompt}]
     
-    # Append conversation history (Multi-turn memory)
-    for past_q, past_a in history[-2:]:  # Use last 2 turns to save context tokens
+    # Append conversation history
+    for past_q, past_a in history:
         clean_past_a = past_a.split("### Source")[0].split("\n\n---")[0].strip()
         messages.append({"role": "user", "content": past_q})
         messages.append({"role": "assistant", "content": clean_past_a})
@@ -149,7 +168,6 @@ RULES:
     messages.append({"role": "user", "content": condensed_question})
     
     try:
-        # Use low temperature (0.1) for factual accuracy and restrict max output tokens to 400
         answer = call_chat(messages, options={"temperature": 0.1, "num_predict": 400})
         
         # Post-processing verification
@@ -181,10 +199,16 @@ RULES:
             
             answer = f"# Answer\nRefer to the detailed explanation below.\n\n## Explanation\n{answer}\n\n### Key Points\n- Information extracted from retrieved document segments.\n\n### Source\n{source_str}"
             
-        if answer != "I couldn't find this information in the uploaded document.":
-            if index_name not in CHAT_HISTORY:
-                CHAT_HISTORY[index_name] = []
-            CHAT_HISTORY[index_name].append((question, answer))
+        if answer != "I couldn't find this information in the uploaded document." and doc_id is not None:
+            async with async_session() as session:
+                db_chat = ChatHistory(
+                    user_id=user_id,
+                    document_id=doc_id,
+                    question=question,
+                    answer=answer
+                )
+                session.add(db_chat)
+                await session.commit()
             
         return {
             "answer": answer,
@@ -197,20 +221,44 @@ RULES:
             "sources": []
         }
 
-def query_rag_stream(question: str, index_name: str = "default", k: int = 4):
+async def query_rag_stream(question: str, user_id: int, file_name: str, k: int = 4):
     """
     Generator yielding RAG source metadata first as JSON, followed by Ollama response tokens.
+    Saves final reply in PostgreSQL.
     """
+    index_name = f"user_{user_id}"
     db = load_vector_store(index_name)
     if db is None:
         yield json.dumps({"sources": []}) + "\n"
         yield "No documents uploaded. Please upload a document to proceed."
         return
         
-    history = CHAT_HISTORY.get(index_name, [])
+    # Retrieve history and doc_id from PostgreSQL
+    history = []
+    doc_id = None
+    async with async_session() as session:
+        doc_result = await session.execute(
+            select(UploadedDocument).where(
+                UploadedDocument.user_id == user_id,
+                UploadedDocument.file_name == file_name
+            )
+        )
+        doc = doc_result.scalars().first()
+        if doc:
+            doc_id = doc.id
+            history_result = await session.execute(
+                select(ChatHistory)
+                .where(ChatHistory.user_id == user_id, ChatHistory.document_id == doc_id)
+                .order_by(desc(ChatHistory.created_at))
+                .limit(2)
+            )
+            past_turns = history_result.scalars().all()
+            for turn in reversed(past_turns):
+                history.append((turn.question, turn.answer))
+                
     condensed_question = condense_question(question, history)
     
-    docs = db.similarity_search(condensed_question, k=6)
+    docs = db.similarity_search(condensed_question, k=4)
     if not docs:
         yield json.dumps({"sources": []}) + "\n"
         yield "I couldn't find this information in the uploaded document."
@@ -280,7 +328,7 @@ RULES:
 3. If the Context does not contain the answer, output no headings, just reply with exactly: "I couldn't find this information in the uploaded document." """
 
     messages = [{"role": "system", "content": system_prompt}]
-    for past_q, past_a in history[-2:]:
+    for past_q, past_a in history:
         clean_past_a = past_a.split("### Source")[0].split("\n\n---")[0].strip()
         messages.append({"role": "user", "content": past_q})
         messages.append({"role": "assistant", "content": clean_past_a})
@@ -294,14 +342,20 @@ RULES:
             full_response += token
             yield token
             
-        # Post-process history storage
-        if full_response.strip():
+        # Post-process and save to DB
+        if full_response.strip() and doc_id is not None:
             lowered_ans = full_response.lower().strip()
             unanswered_phrases = ["not mentioned", "not in the context", "couldn't find", "i do not know", "no information"]
             if not any(p in lowered_ans for p in unanswered_phrases):
-                if index_name not in CHAT_HISTORY:
-                    CHAT_HISTORY[index_name] = []
-                CHAT_HISTORY[index_name].append((question, full_response))
+                async with async_session() as session:
+                    db_chat = ChatHistory(
+                        user_id=user_id,
+                        document_id=doc_id,
+                        question=question,
+                        answer=full_response
+                    )
+                    session.add(db_chat)
+                    await session.commit()
     except Exception as e:
         print(f"Streaming failed: {e}")
         yield "An error occurred during response streaming."

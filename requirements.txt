@@ -17,5 +17,4 @@ asyncpg>=0.28.0
 alembic>=1.11.0
 bcrypt>=4.0.1
 aiosqlite>=0.19.0
-
-
+gradio>=4.0.0

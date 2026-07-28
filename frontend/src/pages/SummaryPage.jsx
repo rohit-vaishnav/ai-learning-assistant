@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { generateSummary } from '../services/api';
 import ReactMarkdown from 'react-markdown';
@@ -10,8 +10,6 @@ const SummaryPage = () => {
   const { 
     selectedFile, 
     showToast, 
-    setLoading, 
-    loading,
     summaryText,
     setSummaryText,
     summaryType,
@@ -22,7 +20,7 @@ const SummaryPage = () => {
     setSummaryCustomText
   } = useApp();
 
-  const isLocalLoading = loading === "Generating Summary...";
+  const [isLocalLoading, setIsLocalLoading] = useState(false);
 
   const handleGenerate = async () => {
     if (summaryActiveTab === "file" && !selectedFile) {
@@ -34,7 +32,7 @@ const SummaryPage = () => {
       return;
     }
 
-    setLoading("Generating Summary...");
+    setIsLocalLoading(true);
     setSummaryText("");
     try {
       const textToUse = summaryActiveTab === "text" ? summaryCustomText : "";
@@ -47,7 +45,7 @@ const SummaryPage = () => {
       const detail = err.response?.data?.detail || "Summarization failed. Verify backend services.";
       showToast(detail, "error");
     } finally {
-      setLoading(false);
+      setIsLocalLoading(false);
     }
   };
 
@@ -191,10 +189,13 @@ const SummaryPage = () => {
   };
 
   return (
-    <div className="px-6 py-10 max-w-4xl mx-auto text-slate-800 dark:text-slate-100 min-h-[calc(100vh-80px)]">
+    <div className="px-6 py-10 max-w-5xl mx-auto text-slate-800 dark:text-slate-100 min-h-[calc(100vh-80px)] animate-fade-in-up">
       <div className="text-center mb-10">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 text-xs font-semibold mb-4 tracking-wide uppercase border border-indigo-500/20">
+          <FileText className="w-3.5 h-3.5" />
+          <span>Synthesis Engine</span>
+        </div>
         <h1 className="font-display font-bold text-3xl mb-2 flex items-center justify-center gap-2">
-          <Activity className="w-7 h-7 text-indigo-500" />
           <span>Summarize Materials</span>
         </h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm max-w-lg mx-auto">
@@ -202,19 +203,19 @@ const SummaryPage = () => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
         {/* Configurations panel */}
-        <div className="space-y-6">
-          <GlassCard className="border border-slate-200 dark:border-slate-800">
-            <h3 className="font-display font-semibold text-sm uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-4">Settings</h3>
+        <div className="md:col-span-5">
+          <GlassCard className="border border-slate-200 dark:border-slate-800 p-6 space-y-6">
+            <h3 className="font-display font-semibold text-sm uppercase tracking-wider text-slate-400 dark:text-slate-500">Settings</h3>
 
             {/* Input toggle */}
-            <div className="mb-4">
-              <label className="text-xs font-bold text-slate-500 block mb-2">Input Source</label>
+            <div>
+              <label className="text-xs font-bold text-slate-550 block mb-2">Input Source</label>
               <div className="flex bg-slate-150 dark:bg-slate-800/80 p-1 rounded-xl">
                 <button
                   onClick={() => setSummaryActiveTab("file")}
-                  disabled={!!loading}
+                  disabled={isLocalLoading}
                   className={`flex-1 text-xs py-2 rounded-lg font-semibold transition-all cursor-pointer ${
                     summaryActiveTab === "file" 
                       ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' 
@@ -225,7 +226,7 @@ const SummaryPage = () => {
                 </button>
                 <button
                   onClick={() => setSummaryActiveTab("text")}
-                  disabled={!!loading}
+                  disabled={isLocalLoading}
                   className={`flex-1 text-xs py-2 rounded-lg font-semibold transition-all cursor-pointer ${
                     summaryActiveTab === "text" 
                       ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' 
@@ -238,26 +239,36 @@ const SummaryPage = () => {
             </div>
 
             {/* Summary type select */}
-            <div className="mb-6">
-              <label className="text-xs font-bold text-slate-500 block mb-2">Output Mode</label>
-              <select
-                value={summaryType}
-                onChange={(e) => setSummaryType(e.target.value)}
-                disabled={!!loading}
-                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-xs outline-none cursor-pointer text-slate-700 dark:text-slate-350 disabled:opacity-55"
-              >
-                <option value="short" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">Short Summary</option>
-                <option value="detailed" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">Detailed Overview</option>
-                <option value="bullets" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">Bullet Revision Notes</option>
-              </select>
+            <div>
+              <label className="text-xs font-bold text-slate-555 block mb-2">Output Mode</label>
+              <div className="relative">
+                <select
+                  value={summaryType}
+                  onChange={(e) => setSummaryType(e.target.value)}
+                  disabled={isLocalLoading}
+                  className="w-full appearance-none bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl pl-9 pr-8 py-3 text-sm font-semibold outline-none cursor-pointer text-slate-900 dark:text-white disabled:opacity-55 transition-all hover:bg-slate-50 dark:hover:bg-slate-950"
+                >
+                  <option value="short" className="bg-white dark:bg-slate-900 text-slate-850 dark:text-slate-100">Short Summary</option>
+                  <option value="detailed" className="bg-white dark:bg-slate-900 text-slate-850 dark:text-slate-100">Detailed Overview</option>
+                  <option value="bullets" className="bg-white dark:bg-slate-900 text-slate-850 dark:text-slate-100">Bullet Revision Notes</option>
+                </select>
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                  <FileText className="w-3.5 h-3.5 text-indigo-550" />
+                </div>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                  <svg className="w-3.5 h-3.5 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                  </svg>
+                </div>
+              </div>
             </div>
 
             {/* Context details */}
             {summaryActiveTab === "file" && (
-              <div className="mb-6 p-3 bg-violet-500/5 rounded-xl border border-violet-500/10 text-xs">
+              <div className="p-3.5 bg-indigo-500/5 rounded-xl border border-indigo-500/20 text-xs">
                 {selectedFile ? (
                   <p className="text-slate-500 dark:text-slate-400">
-                    Will summarize: <span className="font-semibold text-violet-600 dark:text-violet-400 block truncate">{selectedFile.filename}</span>
+                    Will summarize: <span className="font-semibold text-indigo-600 dark:text-indigo-400 block truncate mt-0.5">{selectedFile.filename}</span>
                   </p>
                 ) : (
                   <p className="text-rose-500 font-semibold">Please upload a document to proceed.</p>
@@ -267,37 +278,37 @@ const SummaryPage = () => {
 
             <button
               onClick={handleGenerate}
-              disabled={!!loading || (summaryActiveTab === "file" && !selectedFile)}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold text-sm flex items-center justify-center gap-1.5 shadow-md shadow-violet-500/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLocalLoading || (summaryActiveTab === "file" && !selectedFile)}
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-650 hover:from-indigo-50 hover:to-violet-550 text-white font-semibold text-sm flex items-center justify-center gap-1.5 shadow-md shadow-indigo-500/10 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Sparkles className="w-4 h-4 shrink-0" />
+              <Sparkles className="w-4 h-4 shrink-0 animate-pulse" />
               <span>Generate Summary</span>
             </button>
           </GlassCard>
         </div>
 
         {/* Text area and output panel */}
-        <div className="md:col-span-2 space-y-6">
+        <div className="md:col-span-7 space-y-6">
           {summaryActiveTab === "text" && (
-            <GlassCard className="border border-slate-200 dark:border-slate-800">
-              <h3 className="font-display font-semibold text-sm text-slate-500 uppercase tracking-wider mb-3">Custom Text Input</h3>
+            <GlassCard className="border border-slate-200 dark:border-slate-800 p-6">
+              <h3 className="font-display font-semibold text-xs text-slate-500 uppercase tracking-wider mb-3">Custom Text Input</h3>
               <textarea
                 value={summaryCustomText}
                 onChange={(e) => setSummaryCustomText(e.target.value)}
                 placeholder="Paste raw textbook text, essays, or notes here..."
-                rows={6}
-                disabled={!!loading}
-                className="w-full bg-transparent border border-slate-250 dark:border-slate-800 focus:ring-2 focus:ring-violet-500/10 rounded-xl p-4 text-sm outline-none transition-all resize-none placeholder-slate-400 text-slate-800 dark:text-slate-100 disabled:opacity-55 animate-fade-in"
+                rows={5}
+                disabled={isLocalLoading}
+                className="w-full bg-transparent border border-slate-300 dark:border-slate-800 focus:ring-2 focus:ring-indigo-500/10 rounded-xl p-4 text-sm outline-none transition-all resize-none placeholder-slate-400 text-slate-800 dark:text-slate-100 disabled:opacity-55 animate-fade-in"
               />
             </GlassCard>
           )}
 
-          <GlassCard className="min-h-[280px] flex flex-col justify-between relative overflow-hidden border border-slate-200 dark:border-slate-800">
-            {isLocalLoading && <CardLoader message="Generating Summary..." />}
+          <GlassCard className="min-h-[320px] flex flex-col justify-between relative overflow-hidden border border-slate-200 dark:border-slate-800 p-6">
+            {isLocalLoading && <CardLoader message="Creating Summary..." />}
             
-            <div>
-              <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-slate-800 mb-4">
-                <h3 className="font-display font-semibold text-sm text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+            <div className="flex flex-col flex-1 min-h-0">
+              <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-slate-800 mb-4 shrink-0">
+                <h3 className="font-display font-semibold text-xs text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-indigo-500" />
                   <span>Output</span>
                 </h3>
@@ -324,7 +335,7 @@ const SummaryPage = () => {
                     )}
                     <button
                       onClick={handleClear}
-                      disabled={!!loading}
+                      disabled={isLocalLoading}
                       className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-500 dark:text-slate-400 text-xs font-semibold cursor-pointer disabled:opacity-50"
                     >
                       Clear
@@ -333,16 +344,24 @@ const SummaryPage = () => {
                 )}
               </div>
 
-              {summaryText ? (
-                <div className="prose dark:prose-invert">
-                  <ReactMarkdown>{summaryText}</ReactMarkdown>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500">
-                  <Activity className="w-10 h-10 stroke-1 mb-2 animate-pulse" />
-                  <p className="text-xs">Select options and click generate to process the summary.</p>
-                </div>
-              )}
+              {/* Scrollable text container to prevent cutoff */}
+              <div className="flex-1 overflow-y-auto pr-1 my-2 min-h-[224px] max-h-[360px]">
+                {summaryText ? (
+                  <div className="prose dark:prose-invert leading-relaxed text-sm">
+                    <ReactMarkdown>{summaryText}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16 text-slate-400 dark:text-slate-500 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-500/10 to-violet-500/10 border border-indigo-500/10 flex items-center justify-center mb-4 shadow-sm">
+                      <FileText className="w-7 h-7 text-indigo-500 stroke-1" />
+                    </div>
+                    <h4 className="font-display font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1">Awaiting Summary Input</h4>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 max-w-[220px] leading-relaxed">
+                      Select a document source or write text in custom input to produce summaries.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </GlassCard>
         </div>

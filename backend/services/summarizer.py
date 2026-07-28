@@ -69,9 +69,14 @@ def summarize_text(text: str, summary_type: str = "short", filename: str = "") -
         print(f"Summarizer: Returning cached summary for key '{cache_key}'")
         return SUMMARY_CACHE[cache_key]
 
-    # Split document into chunks of 4000 characters
-    splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=400)
+    # Split document into chunks of 8000 characters
+    splitter = RecursiveCharacterTextSplitter(chunk_size=8000, chunk_overlap=800)
     chunks = splitter.split_text(cleaned)
+    
+    # Limit to maximum 4 representative chunks to prevent sequential LLM execution overhead
+    if len(chunks) > 4:
+        step = len(chunks) / 4
+        chunks = [chunks[int(i * step)] for i in range(4)]
     
     # If the document is small, we summarize it directly
     if len(chunks) == 1:
@@ -98,7 +103,10 @@ takeaways:"""
 
     # Synthesize the final summary based on requested type
     if summary_type == "short":
-        prompt = f"""Write a cohesive summary of 300-500 words in 5 short paragraphs based ONLY on the context. Do not use bullets or lists. Write in your own words.
+        prompt = f"""Write a cohesive educational summary of 300-500 words based ONLY on the context.
+Format it using clear markdown headings:
+1. First, write a brief introductory overview paragraph.
+2. Then, list the key findings and core takeaways using clear bullet points.
 
 Context:
 {merged_summaries_text}
@@ -107,7 +115,7 @@ Short Summary:"""
         num_predict = 400
         
     elif summary_type == "detailed":
-        prompt = f"""Write a detailed educational overview of 1000-1500 words explaining the document based ONLY on the context. Use clear markdown headings (##) and subheadings (###). Define terms and include examples.
+        prompt = f"""Write a detailed educational overview of 1000-1500 words explaining the document based ONLY on the context. Use clear markdown headings (##) and subheadings (###). Define terms, include examples, and organize key information into bullet points for readability.
 
 Context:
 {merged_summaries_text}

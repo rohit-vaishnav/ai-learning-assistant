@@ -46,7 +46,7 @@ const UploadPage = () => {
     }
 
     setUploadStatus({ name: file.name, progress: 10, step: "Uploading..." });
-    setLoading(true);
+    setLoading("Processing Document...");
 
     try {
       // 1. Post file to backend (immediately returns status)
@@ -107,79 +107,85 @@ const UploadPage = () => {
   };
 
   return (
-    <div className="px-6 py-10 max-w-4xl mx-auto text-slate-800 dark:text-slate-100 min-h-[calc(100vh-80px)] flex flex-col justify-center">
+    <div className="px-6 py-10 max-w-5xl mx-auto text-slate-800 dark:text-slate-100 min-h-[calc(100vh-80px)] animate-fade-in-up">
       <div className="text-center mb-10">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 text-violet-500 text-xs font-semibold mb-4 tracking-wide uppercase border border-violet-500/20">
+          <UploadCloud className="w-3.5 h-3.5" />
+          <span>Ingestion Console</span>
+        </div>
         <h1 className="font-display font-bold text-3xl mb-2">Upload Study Materials</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm max-w-lg mx-auto">
           Add textbooks, slides, and syllabus files. Embeddings will be computed locally using `SentenceTransformers`.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
         
         {/* Dropzone area */}
-        <div className="md:col-span-2">
-          <form 
-            onDragEnter={handleDrag}
-            onDragOver={handleDrag}
-            onDragLeave={handleDrag}
-            onDrop={handleDrop}
-            className="h-full"
-          >
-            <input 
-              ref={fileInputRef}
-              type="file" 
-              className="hidden" 
-              accept=".pdf,.docx,.pptx"
-              onChange={handleChange}
-            />
-
-            <div 
-              onClick={() => fileInputRef.current.click()}
-              className={`h-72 flex flex-col items-center justify-center border-2 border-dashed rounded-3xl cursor-pointer p-8 text-center transition-all ${
-                dragActive 
-                  ? 'border-violet-500 bg-violet-500/5' 
-                  : 'border-slate-300 dark:border-slate-800 bg-slate-500/5 hover:bg-slate-500/10'
-              }`}
+        <div className="md:col-span-7">
+          <GlassCard className="border border-slate-200 dark:border-slate-800 p-6 h-full">
+            <form 
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              className="h-full flex flex-col justify-center"
             >
-              <div className="p-4 bg-violet-500/10 rounded-full text-violet-500 mb-4 animate-pulse">
-                <UploadCloud className="w-8 h-8" />
+              <input 
+                ref={fileInputRef}
+                type="file" 
+                className="hidden" 
+                accept=".pdf,.docx,.pptx"
+                onChange={handleChange}
+              />
+
+              <div 
+                onClick={() => fileInputRef.current.click()}
+                className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl cursor-pointer p-8 text-center transition-all min-h-[280px] group ${
+                  dragActive 
+                    ? 'border-violet-500 bg-violet-500/10' 
+                    : 'border-slate-300 dark:border-slate-800 bg-slate-500/5 dark:bg-slate-950/20 hover:bg-slate-500/10 dark:hover:bg-slate-950/30'
+                }`}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-violet-500/10 to-indigo-500/10 border border-violet-500/10 flex items-center justify-center mb-4 shadow-sm group-hover:scale-105 transition-transform animate-pulse">
+                  <UploadCloud className="w-8 h-8 text-violet-500 stroke-1" />
+                </div>
+                <p className="font-semibold text-slate-700 dark:text-slate-200">Drag & Drop file here</p>
+                <p className="text-xs text-slate-450 mt-1">or click to browse local files</p>
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold bg-slate-200/50 dark:bg-slate-800/80 px-2.5 py-1 rounded-full mt-4">
+                  PDF, DOCX, or PPTX up to 25MB
+                </span>
               </div>
-              <p className="font-semibold text-slate-700 dark:text-slate-200">Drag & Drop file here</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">or click to browse local files</p>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold bg-slate-200/50 dark:bg-slate-800/80 px-2.5 py-1 rounded-full mt-4">
-                PDF, DOCX, or PPTX up to 25MB
-              </p>
-            </div>
-          </form>
+            </form>
+          </GlassCard>
         </div>
 
         {/* Requirements and active statuses */}
-        <div className="space-y-6">
-          <GlassCard className="h-full flex flex-col justify-between">
+        <div className="md:col-span-5">
+          <GlassCard className="h-full flex flex-col justify-between p-6">
             <div>
               <h3 className="font-display font-semibold text-sm uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-4">Pipeline Workflow</h3>
               
               <ul className="space-y-4">
                 <li className="flex gap-3 text-xs">
-                  <div className="w-5 h-5 rounded-full bg-violet-500/10 text-violet-500 flex items-center justify-center font-bold shrink-0">1</div>
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-violet-500/10 to-indigo-500/10 border border-violet-500/10 text-violet-500 flex items-center justify-center font-bold shrink-0 text-[10px]">1</div>
                   <div>
-                    <p className="font-semibold">Text Extraction</p>
-                    <p className="text-slate-400 dark:text-slate-500 mt-0.5">Reads visual pages, doc paragraphs, or slides.</p>
+                    <p className="font-semibold text-slate-750 dark:text-slate-200">Text Extraction</p>
+                    <p className="text-slate-400 dark:text-slate-500 mt-0.5 leading-relaxed">Reads visual pages, doc paragraphs, or slides.</p>
                   </div>
                 </li>
                 <li className="flex gap-3 text-xs">
-                  <div className="w-5 h-5 rounded-full bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold shrink-0">2</div>
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-violet-500/10 to-indigo-500/10 border border-violet-500/10 text-indigo-500 flex items-center justify-center font-bold shrink-0 text-[10px]">2</div>
                   <div>
-                    <p className="font-semibold">Text Chunking</p>
-                    <p className="text-slate-400 dark:text-slate-500 mt-0.5">Splits content recursively into 1000-char blocks.</p>
+                    <p className="font-semibold text-slate-750 dark:text-slate-200">Text Chunking</p>
+                    <p className="text-slate-400 dark:text-slate-500 mt-0.5 leading-relaxed">Splits content recursively into 1000-char blocks.</p>
                   </div>
                 </li>
                 <li className="flex gap-3 text-xs">
-                  <div className="w-5 h-5 rounded-full bg-pink-500/10 text-pink-500 flex items-center justify-center font-bold shrink-0">3</div>
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-violet-500/10 to-indigo-500/10 border border-violet-500/10 text-pink-500 flex items-center justify-center font-bold shrink-0 text-[10px]">3</div>
                   <div>
-                    <p className="font-semibold">Vector Indexing</p>
-                    <p className="text-slate-400 dark:text-slate-500 mt-0.5">Computes and caches embeddings inside local FAISS DB.</p>
+                    <p className="font-semibold text-slate-750 dark:text-slate-200">Vector Indexing</p>
+                    <p className="text-slate-400 dark:text-slate-500 mt-0.5 leading-relaxed">Computes and caches embeddings inside local FAISS DB.</p>
                   </div>
                 </li>
               </ul>

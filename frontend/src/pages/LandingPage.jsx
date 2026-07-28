@@ -15,7 +15,11 @@ import {
 } from 'lucide-react';
 import GlassCard from '../components/GlassCard';
 
+import { useApp } from '../context/AppContext';
+
 const LandingPage = () => {
+  const { isAuthenticated } = useApp();
+  
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -106,18 +110,18 @@ const LandingPage = () => {
           className="flex flex-col sm:flex-row gap-4 justify-center items-center w-full"
         >
           <NavLink 
-            to="/dashboard" 
+            to={isAuthenticated ? "/dashboard" : "/register"} 
             className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold flex items-center justify-center gap-2 shadow-lg shadow-violet-500/25 hover:shadow-violet-500/35 transition-all duration-300 transform hover:-y-0.5 active:scale-95"
           >
-            <span>Enter Dashboard</span>
+            <span>{isAuthenticated ? "Enter Workspace" : "Get Started Free"}</span>
             <ArrowRight className="w-5 h-5" />
           </NavLink>
           
           <NavLink 
-            to="/upload" 
+            to={isAuthenticated ? "/upload" : "/login"} 
             className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-800 dark:text-slate-200 font-semibold flex items-center justify-center gap-2 transition-all duration-300 active:scale-95"
           >
-            <span>Upload Document</span>
+            <span>{isAuthenticated ? "Upload Document" : "Sign In"}</span>
           </NavLink>
         </motion.div>
       </section>

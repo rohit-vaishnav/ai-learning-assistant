@@ -1,6 +1,24 @@
-# Local AI Learning Assistant using Ollama & RAG
+---
+title: AI Learning Assistant
+emoji: 🎓
+colorFrom: indigo
+colorTo: pink
+sdk: gradio
+sdk_version: 4.19.2
+app_file: app.py
+pinned: false
+---
 
-A complete, production-ready Local AI Learning Assistant built with **FastAPI**, **React (Vite)**, **Tailwind CSS (v4)**, **LangChain**, and **FAISS**, powered by a local **Ollama** LLM pipeline.
+# 🎓 AI Learning Assistant
+
+A full-featured, interactive AI Learning Assistant built with a **React (Vite)** frontend and **FastAPI** backend. It leverages **LangChain** and **FAISS** for Retrieval-Augmented Generation (RAG), allowing students to upload study documents and learn interactively.
+
+### 🌟 Core Features:
+* **💬 Interactive Document Chat (RAG)**: Ask questions about your study documents with responses structured into clear direct answers, detailed explanations, and bulleted key points.
+* **📝 AI Outlines & Summaries**: Generate short overview paragraphs, detailed revision notes, or quick bullet points from your uploaded notes.
+* **🧠 Custom Quiz Generator**: Test your knowledge with dynamically generated Multiple Choice, True/False, or Short Answer quizzes. If you pass, you can download a personalized PDF Certificate of Achievement.
+* **📖 Concept Explainer**: Get definitions of complex academic terms simplified using friendly analogies (Beginner), standard definitions (Student), or code/deep breakdowns (Technical).
+* **🌐 Language Translator**: Translate study material into multiple languages (Hindi, Spanish, French, etc.) instantly.
 
 The application implements a full local **Retrieval-Augmented Generation (RAG)** pipeline. It uses local sentence embeddings for semantic search and document indexing, combined with **Ollama running locally** for Chat, Summarization, Quiz Generation, Topic Simplification, and Language Translation. **No external cloud APIs or keys (such as Groq, OpenAI, or Anthropic) are required.**
 

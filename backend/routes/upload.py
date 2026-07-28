@@ -1,116 +1,160 @@
 import os
-import json
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+
+from backend.database.connection import get_db, async_session
+from backend.database.models import User, UploadedDocument, DocumentChunk
+from backend.routes.auth import get_current_user
 from backend.utils.pdf_reader import read_pdf
 from backend.utils.docx_reader import read_docx
 from backend.utils.ppt_reader import read_pptx
 from backend.utils.text_chunker import chunk_documents
-from backend.utils.vector_store import save_vector_store
+from backend.utils.vector_store import save_vector_store, clear_vector_store
 
 router = APIRouter()
 
 # Ensure uploads folder exists
 UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "uploads"))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-METADATA_FILE = os.path.join(UPLOAD_DIR, "files_metadata.json")
 
-# In-memory status tracking dictionary for upload progression
-PROCESSING_STATUS = {}
-
-def get_metadata() -> dict:
-    if os.path.exists(METADATA_FILE):
+async def process_document_background(filename: str, file_path: str, user_id: int):
+    """
+    Background worker task to extract text, chunk content, generate embeddings,
+    and save relational records to PostgreSQL and vector indices to FAISS.
+    """
+    async with async_session() as db:
         try:
-            with open(METADATA_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_metadata(metadata: dict):
-    with open(METADATA_FILE, "w") as f:
-        json.dump(metadata, f, indent=4)
-
-def process_document_background(filename: str, file_path: str):
-    """
-    Background worker task to extract text, chunk content, and generate embeddings.
-    """
-    try:
-        ext = os.path.splitext(filename)[1].lower()
-        
-        # Step 1: Extract Text (Status was set to Extracting Text... on upload receipt)
-        PROCESSING_STATUS[filename] = "Extracting Text..."
-        
-        if ext == ".pdf":
-            pages_data = read_pdf(file_path)
-        elif ext == ".docx":
-            pages_data = read_docx(file_path)
-        elif ext == ".pptx":
-            pages_data = read_pptx(file_path)
-        else:
-            raise ValueError("Unsupported file format.")
+            ext = os.path.splitext(filename)[1].lower()
             
-        if not pages_data:
-            raise ValueError("Document contains no readable text contents.")
+            # Step 1: Update status to Extracting Text
+            result = await db.execute(
+                select(UploadedDocument).where(
+                    UploadedDocument.file_name == filename, 
+                    UploadedDocument.user_id == user_id
+                )
+            )
+            doc = result.scalars().first()
+            if not doc:
+                return
+                
+            doc.document_status = "Extracting Text..."
+            await db.commit()
             
-        # Step 2: Creating Embeddings
-        PROCESSING_STATUS[filename] = "Creating Embeddings..."
-        
-        # Split text into optimized chunk sizes (800 char blocks with 150 overlap)
-        documents = chunk_documents(pages_data, filename, chunk_size=800, chunk_overlap=150)
-        
-        # Save to local FAISS store (adds to default index index.faiss)
-        save_vector_store(documents, "default")
-        
-        # Save file info metadata cache
-        metadata = get_metadata()
-        metadata[filename] = {
-            "filename": filename,
-            "file_size": os.path.getsize(file_path),
-            "num_chunks": len(documents),
-            "num_pages": len(pages_data)
-        }
-        save_metadata(metadata)
-        
-        PROCESSING_STATUS[filename] = "Ready"
-        print(f"Background parsing complete for: {filename}")
-        
-    except Exception as e:
-        print(f"Background process error for '{filename}': {e}")
-        PROCESSING_STATUS[filename] = f"Error: {str(e)}"
-        # Clean up corrupted file if upload failed
-        if os.path.exists(file_path):
+            if ext == ".pdf":
+                pages_data = read_pdf(file_path)
+            elif ext == ".docx":
+                pages_data = read_docx(file_path)
+            elif ext == ".pptx":
+                pages_data = read_pptx(file_path)
+            else:
+                raise ValueError("Unsupported file format.")
+                
+            if not pages_data:
+                raise ValueError("Document contains no readable text contents.")
+                
+            # Step 2: Creating Embeddings
+            doc.document_status = "Creating Embeddings..."
+            await db.commit()
+            
+            # Split text into optimized chunk sizes (800 char blocks with 150 overlap)
+            documents = chunk_documents(pages_data, filename, chunk_size=800, chunk_overlap=150)
+            
+            # Save to user-isolated FAISS store
+            index_name = f"user_{user_id}"
+            save_vector_store(documents, index_name)
+            
+            # Save chunks to PostgreSQL
+            for i, chunk in enumerate(documents):
+                db_chunk = DocumentChunk(
+                    document_id=doc.id,
+                    chunk_number=i,
+                    chunk_text=chunk.page_content,
+                    page_number=chunk.metadata.get("page", 1)
+                )
+                db.add(db_chunk)
+                
+            doc.document_status = "Ready"
+            await db.commit()
+            print(f"Background parsing complete for user {user_id}: {filename}")
+            
+        except Exception as e:
+            print(f"Background process error for '{filename}': {e}")
             try:
-                os.remove(file_path)
-            except Exception:
-                pass
+                # Update DB record status to error
+                result = await db.execute(
+                    select(UploadedDocument).where(
+                        UploadedDocument.file_name == filename, 
+                        UploadedDocument.user_id == user_id
+                    )
+                )
+                doc = result.scalars().first()
+                if doc:
+                    doc.document_status = f"Error: {str(e)}"
+                    await db.commit()
+            except Exception as db_err:
+                print(f"Failed to save error status to DB: {db_err}")
+                
+            # Clean up file if failed
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
 
 @router.post("/upload")
-async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    filename = file.filename
+async def upload_file(
+    background_tasks: BackgroundTasks, 
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    filename = file.filename.strip()
     ext = os.path.splitext(filename)[1].lower()
     
     if ext not in [".pdf", ".docx", ".pptx"]:
         raise HTTPException(status_code=400, detail="Only PDF, DOCX, and PPTX files are supported.")
         
-    # Check cache to avoid duplicate embeddings and parsing
-    metadata = get_metadata()
-    if filename in metadata:
-        PROCESSING_STATUS[filename] = "Ready"
-        return {
-            "status": "Ready",
-            "filename": filename,
-            "message": f"'{filename}' has already been processed (cached)."
-        }
-        
-    temp_path = os.path.join(UPLOAD_DIR, filename)
+    # Check database to avoid duplicate uploads for this user
+    result = await db.execute(
+        select(UploadedDocument).where(
+            UploadedDocument.file_name == filename, 
+            UploadedDocument.user_id == current_user.id
+        )
+    )
+    existing_doc = result.scalars().first()
+    if existing_doc:
+        # If it failed previously, allow re-upload
+        if "Error" in existing_doc.document_status:
+            await db.delete(existing_doc)
+            await db.commit()
+        else:
+            return {
+                "status": existing_doc.document_status,
+                "filename": filename,
+                "message": f"'{filename}' has already been processed."
+            }
+            
+    temp_path = os.path.join(UPLOAD_DIR, f"{current_user.id}_{filename}")
     try:
-        # Write contents to uploads
+        # Write contents to local uploads folder
         with open(temp_path, "wb") as buffer:
             buffer.write(await file.read())
             
-        # Set status and spawn async background worker task
-        PROCESSING_STATUS[filename] = "Extracting Text..."
-        background_tasks.add_task(process_document_background, filename, temp_path)
+        # Create record in DB
+        doc = UploadedDocument(
+            user_id=current_user.id,
+            file_name=filename,
+            file_type=ext,
+            file_size=os.path.getsize(temp_path),
+            document_status="Processing"
+        )
+        db.add(doc)
+        await db.commit()
+        await db.refresh(doc)
+        
+        # Spawn async background worker task
+        background_tasks.add_task(process_document_background, filename, temp_path, current_user.id)
         
         return {
             "status": "Processing",
@@ -123,42 +167,94 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @router.get("/upload/status")
-async def get_upload_status(filename: str):
+async def get_upload_status(
+    filename: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Returns the real-time processing stage of a document.
     """
-    # If not in memory status dict, check if it already exists in metadata cache
-    status = PROCESSING_STATUS.get(filename)
-    if status is None:
-        metadata = get_metadata()
-        status = "Ready" if filename in metadata else "Ready"
-    return {"status": status}
+    result = await db.execute(
+        select(UploadedDocument).where(
+            UploadedDocument.file_name == filename, 
+            UploadedDocument.user_id == current_user.id
+        )
+    )
+    doc = result.scalars().first()
+    if doc:
+        return {"status": doc.document_status}
+    return {"status": "Not Found"}
 
 @router.get("/documents")
-async def get_documents():
+async def get_documents(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Returns list of uploaded and indexed files.
+    Returns list of uploaded and indexed files for the active user.
     """
-    metadata = get_metadata()
-    return list(metadata.values())
+    result = await db.execute(
+        select(UploadedDocument).where(UploadedDocument.user_id == current_user.id)
+    )
+    docs = result.scalars().all()
+    
+    # Format to match frontend expectations
+    documents_list = []
+    for d in docs:
+        # Fetch chunk count
+        chunk_result = await db.execute(
+            select(DocumentChunk).where(DocumentChunk.document_id == d.id)
+        )
+        chunks = chunk_result.scalars().all()
+        
+        # Approximate pages if reader failed to count
+        num_pages = 0
+        if chunks:
+            num_pages = max(c.page_number for c in chunks)
+            
+        documents_list.append({
+            "filename": d.file_name,
+            "file_size": d.file_size,
+            "num_chunks": len(chunks),
+            "num_pages": num_pages if num_pages > 0 else 1,
+            "status": d.document_status,
+            "upload_date": d.upload_date.isoformat()
+        })
+        
+    return documents_list
 
 @router.delete("/documents")
-async def delete_documents():
+async def delete_documents(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Clears all documents and clears the vector database.
+    Clears all documents for the authenticated user and clears their vector index.
     """
-    from backend.utils.vector_store import clear_vector_store
-    clear_vector_store("default")
-    PROCESSING_STATUS.clear()
+    # Find all documents belonging to user
+    result = await db.execute(
+        select(UploadedDocument).where(UploadedDocument.user_id == current_user.id)
+    )
+    docs = result.scalars().all()
     
-    # Delete local files
-    for fname in os.listdir(UPLOAD_DIR):
-        fpath = os.path.join(UPLOAD_DIR, fname)
-        if os.path.isfile(fpath):
-            os.remove(fpath)
-            
-    # Reset metadata
-    if os.path.exists(METADATA_FILE):
-        os.remove(METADATA_FILE)
-        
-    return {"message": "All documents cleared successfully."}
+    # Delete local physical files
+    for d in docs:
+        temp_path = os.path.join(UPLOAD_DIR, f"{current_user.id}_{d.file_name}")
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+                
+    # Clear vector store for the user index
+    index_name = f"user_{current_user.id}"
+    clear_vector_store(index_name)
+    
+    # Delete from database (cascade deletes chunks, chat, summaries, quizzes)
+    await db.execute(
+        delete(UploadedDocument).where(UploadedDocument.user_id == current_user.id)
+    )
+    await db.commit()
+    
+    return {"message": "All user documents and vector index cleared successfully."}

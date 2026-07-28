@@ -13,11 +13,22 @@ from routes.summary import router as summary_router
 from routes.quiz import router as quiz_router
 from routes.explain import router as explain_router
 from routes.translate import router as translate_router
+from routes.auth import router as auth_router
 
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("Initializing database tables...")
+    try:
+        from backend.database.connection import async_engine, Base
+        import backend.database.models
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("Database tables initialized successfully.")
+    except Exception as db_e:
+        print(f"Startup warning: failed to initialize database tables: {db_e}")
+
     print("Initializing local AI services once during FastAPI startup...")
     try:
         from backend.services.embeddings import get_embeddings_model
@@ -54,12 +65,31 @@ app.add_middleware(
 )
 
 # Register route controllers
+app.include_router(auth_router)
 app.include_router(upload_router)
 app.include_router(chat_router)
 app.include_router(summary_router)
 app.include_router(quiz_router)
 app.include_router(explain_router)
 app.include_router(translate_router)
+
+# Serve static frontend files in production if dist folder is built
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
+if os.path.exists(frontend_dist):
+    print(f"Mounting static files from: {frontend_dist}")
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+    
+    @app.get("/{rest_of_path:path}")
+    async def serve_spa(rest_of_path: str):
+        # Allow API routes to pass through to custom handlers
+        if any(rest_of_path.startswith(prefix) for prefix in ["auth", "upload", "documents", "chat", "summary", "quiz", "explain", "translate", "health"]):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="API Route Not Found")
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+
 
 @app.get("/health")
 async def health_check():
@@ -83,4 +113,4 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     # Start the server on port 8000
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
